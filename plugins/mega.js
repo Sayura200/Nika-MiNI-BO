@@ -6,7 +6,7 @@ const FileType = require('file-type'); // npm install file-type
 
 cmd({
   pattern: "mega",
-  desc: "Download Mega.nz file (streamed, safe, throttled progress)",
+  desc: "Download Mega.nz file safely (streamed, throttled progress)",
   react: "🎥",
   filename: __filename
 }, async (conn, mek, m, { from, q, reply }) => {
@@ -24,19 +24,20 @@ cmd({
     const tempPath = path.join(__dirname, "temp_" + Date.now());
     const writeStream = fs.createWriteStream(tempPath);
 
-    reply(`📥 *Downloading:* ${fileName} ...`);
-
     const stream = megaFile.download();
     let downloaded = 0;
     let lastPercent = 0;
 
-    // 🔄 Stream download with throttled progress
+    // 🔹 Throttled progress (every 2% only)
+    let lastReplyTime = 0;
     stream.on("data", chunk => {
       downloaded += chunk.length;
       const percent = Math.floor((downloaded / megaFile.size) * 100);
+      const now = Date.now();
 
-      if (percent !== lastPercent && percent % 1 === 0) { // only update each %
+      if ((percent !== lastPercent && percent % 2 === 0) || now - lastReplyTime > 2000) {
         lastPercent = percent;
+        lastReplyTime = now;
         reply(`⬇️ Downloading: ${percent}% (${(downloaded/1024/1024).toFixed(2)}MB / ${(megaFile.size/1024/1024).toFixed(2)}MB)`);
       }
     });
@@ -47,11 +48,10 @@ cmd({
       stream.on("error", reject);
     });
 
-    // 🔹 Detect file type from first few KB (memory safe)
+    // 🔹 Detect file type (memory safe)
     const fileType = await FileType.fromFile(tempPath);
     let ext = path.extname(fileName).toLowerCase();
     let cleanName = fileName;
-
     if ((!ext || ext === ".bin") && fileType?.ext) {
       ext = "." + fileType.ext;
       cleanName = path.basename(fileName, path.extname(fileName)) + ext;
@@ -64,7 +64,7 @@ cmd({
       return reply(`❌ File too large (${sizeInMB.toFixed(2)}MB). Max allowed: 2000MB.`);
     }
 
-    // 🔹 Send file with correct type
+    // 🔹 Send file (streamed, memory safe)
     if ([".mp4", ".mkv", ".mov"].includes(ext)) {
       await conn.sendMessage(from, {
         video: fs.createReadStream(tempPath),
