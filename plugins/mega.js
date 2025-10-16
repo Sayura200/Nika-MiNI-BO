@@ -1,11 +1,11 @@
 const { cmd } = require('../lib/command');
 const { File } = require("megajs");
 const path = require('path');
-const FileType = require('file-type'); // <-- ADD THIS at the top (npm install file-type)
+const FileType = require('file-type'); // 👉 npm install file-type
 
 cmd({
   pattern: "mega",
-  desc: "Download real file from Mega.nz (No .BIN)",
+  desc: "Download real files from Mega.nz (No .BIN, No Footer)",
   react: "🎥",
   filename: __filename
 }, async (conn, mek, m, { from, q, reply }) => {
@@ -21,10 +21,9 @@ cmd({
     let fileName = megaFile.name || "file";
     reply(`📥 *Downloading:* ${fileName} ...`);
 
-    // Download buffer
     const buffer = await megaFile.downloadBuffer();
 
-    // Detect actual MIME type and extension from file content
+    // Detect correct MIME type and fix .bin issue
     const fileType = await FileType.fromBuffer(buffer);
     let ext = path.extname(fileName).toLowerCase();
 
@@ -33,28 +32,24 @@ cmd({
       fileName = path.basename(fileName, path.extname(fileName)) + ext;
     }
 
-    // File size check (max 2GB)
+    // 2GB max
     const sizeInMB = buffer.length / 1024 / 1024;
-    const maxLimitMB = 2000;
-    if (sizeInMB > maxLimitMB) {
-      return reply(`❌ File too large (${sizeInMB.toFixed(2)}MB). Max allowed: ${maxLimitMB}MB (≈2GB).`);
+    if (sizeInMB > 2000) {
+      return reply(`❌ File too large (${sizeInMB.toFixed(2)}MB). Max allowed: 2000MB (≈2GB).`);
     }
 
-    const caption = `📦 *Downloaded from Mega.nz*\n📁 ${fileName}\n\n> *Uploaded by NIKA MINI*`;
-
+    // Send the file (no footer)
     if ([".mp4", ".mkv", ".mov"].includes(ext)) {
       await conn.sendMessage(from, {
         video: buffer,
         mimetype: fileType?.mime || 'video/mp4',
-        fileName,
-        caption
+        fileName
       }, { quoted: mek });
     } else {
       await conn.sendMessage(from, {
         document: buffer,
         mimetype: fileType?.mime || 'application/octet-stream',
-        fileName,
-        caption
+        fileName
       }, { quoted: mek });
     }
 
