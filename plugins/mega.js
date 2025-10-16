@@ -1,18 +1,15 @@
 const { cmd } = require('../lib/command');
 const { File } = require("megajs");
-const fs = require('fs');
 const path = require('path');
-const FileType = require('file-type'); // npm install file-type
 
 cmd({
   pattern: "mega",
-  desc: "Download Mega.nz file safely (streamed, throttled progress)",
+  desc: "Download real mp4 from Mega.nz",
   react: "🎥",
   filename: __filename
 }, async (conn, mek, m, { from, q, reply }) => {
   try {
-    if (!q || !q.includes("mega.nz")) 
-      return reply("📎 *Send a valid Mega.nz file URL*");
+    if (!q || !q.includes("mega.nz")) return reply("📎 *Send a valid Mega.nz file URL*");
 
     const [fileUrl, decryptionKey] = q.split("#");
     if (!decryptionKey) return reply("🔑 *Missing decryption key*");
@@ -20,69 +17,35 @@ cmd({
     const megaFile = File.fromURL(fileUrl + "#" + decryptionKey);
     await megaFile.loadAttributes();
 
-    const fileName = megaFile.name || "file";
-    const tempPath = path.join(__dirname, "temp_" + Date.now());
-    const writeStream = fs.createWriteStream(tempPath);
-
-    const stream = megaFile.download();
-    let downloaded = 0;
-    let lastPercent = 0;
-
-    // 🔹 Throttled progress (every 2% only)
-    let lastReplyTime = 0;
-    stream.on("data", chunk => {
-      downloaded += chunk.length;
-      const percent = Math.floor((downloaded / megaFile.size) * 100);
-      const now = Date.now();
-
-      if ((percent !== lastPercent && percent % 2 === 0) || now - lastReplyTime > 2000) {
-        lastPercent = percent;
-        lastReplyTime = now;
-        reply(`⬇️ Downloading: ${percent}% (${(downloaded/1024/1024).toFixed(2)}MB / ${(megaFile.size/1024/1024).toFixed(2)}MB)`);
-      }
+    megaFile.on("progress", (downloaded, total) => {
+      const percent = ((downloaded / total) * 100).toFixed(2);
+      reply(`⬇️ Downloading: ${percent}% (${(downloaded / 1024 / 1024).toFixed(2)}MB)`);
     });
 
-    await new Promise((resolve, reject) => {
-      stream.pipe(writeStream);
-      stream.on("end", resolve);
-      stream.on("error", reject);
-    });
+    const buffer = await megaFile.downloadBuffer();
+    let fileName = megaFile.name || "video.mp4";
 
-    // 🔹 Detect file type (memory safe)
-    const fileType = await FileType.fromFile(tempPath);
-    let ext = path.extname(fileName).toLowerCase();
-    let cleanName = fileName;
-    if ((!ext || ext === ".bin") && fileType?.ext) {
-      ext = "." + fileType.ext;
-      cleanName = path.basename(fileName, path.extname(fileName)) + ext;
+    // 🧩 Fix .bin extension issue
+    if (path.extname(fileName).toLowerCase() === ".bin") {
+      fileName = fileName.replace(/\.bin$/i, ".mp4");
     }
 
-    // 🔹 File size check
-    const sizeInMB = fs.statSync(tempPath).size / 1024 / 1024;
-    if (sizeInMB > 2000) {
-      fs.unlinkSync(tempPath);
-      return reply(`❌ File too large (${sizeInMB.toFixed(2)}MB). Max allowed: 2000MB.`);
+    const sizeInMB = buffer.length / 1024 / 1024;
+    if (sizeInMB > 2048) { // 🔼 Max size = 2GB
+      return reply(`❌ File is too large (${sizeInMB.toFixed(2)}MB). Max allowed: 2GB.`);
     }
 
-    // 🔹 Send file (streamed, memory safe)
-    if ([".mp4", ".mkv", ".mov"].includes(ext)) {
-      await conn.sendMessage(from, {
-        video: fs.createReadStream(tempPath),
-        mimetype: fileType?.mime || 'video/mp4',
-        fileName: cleanName
-      }, { quoted: mek });
-    } else {
-      await conn.sendMessage(from, {
-        document: fs.createReadStream(tempPath),
-        mimetype: fileType?.mime || 'application/octet-stream',
-        fileName: cleanName
-      }, { quoted: mek });
-    }
+    const caption = `🎞️ *${fileName}*\n\n❖ Video Quality : 720p\n\n📥 Video එක Download කරලා බලන්න\n\n> *ᴜᴘʟᴏᴀᴅ ʙʏ NIKA MINI*`;
 
-    fs.unlinkSync(tempPath);
+    await conn.sendMessage(from, {
+      video: buffer,
+      mimetype: 'video/mp4',
+      fileName,
+      caption
+    }, { quoted: mek });
 
   } catch (e) {
     console.error(e);
-    reply("❌ Failed to process Mega.nz link.\n\nReason: " + e.message);
+    reply("❌ Failed to upload to WhatsApp.\n\nReason: " + e.message);
   }
 });
