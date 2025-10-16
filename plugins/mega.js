@@ -16,7 +16,7 @@ cmd({
 
     const megaFile = File.fromURL(fileUrl + "#" + decryptionKey);
 
-    await megaFile.loadAttributes(); // ✅ Ensure file name is fetched
+    await megaFile.loadAttributes(); // ✅ Fetch file info
 
     megaFile.on("progress", (downloaded, total) => {
       const percent = ((downloaded / total) * 100).toFixed(2);
@@ -24,15 +24,18 @@ cmd({
     });
 
     const buffer = await megaFile.downloadBuffer();
-    const fileName = megaFile.name || "file.mp4"; // ✅ Now real name should work
+    const fileName = megaFile.name || "file.mp4";
     const ext = path.extname(fileName).toLowerCase();
 
+    // ✅ Increased limit to 2GB
     const sizeInMB = buffer.length / 1024 / 1024;
-    if (sizeInMB > 500) {
-      return reply(`❌ File is too large (${sizeInMB.toFixed(5)}MB). WhatsApp max: 500MB.`);
+    const maxLimitMB = 2000; // 2GB = 2000MB
+
+    if (sizeInMB > maxLimitMB) {
+      return reply(`❌ File is too large (${sizeInMB.toFixed(2)}MB). Max allowed: ${maxLimitMB}MB (≈2GB).`);
     }
 
-    const caption = `🎞️ *${fileName}*\n\n❖ Video Quality : 720p\n\n📥 Video එක Full Download කිරිමෙන් අනතුරුව බලන්න\n\n🚨 වැඩ නැති එකක් උනොත් මේ number එකට message එකක් දාන්න: 0743826406\n\n> *ᴜᴘʟᴏᴀᴅ ʙʏ NIKA MINI*`;
+    const caption = `🎞️ *${fileName}*\n\n❖ Video Quality : 720p\n\n📥 Video එක Download කරලා බලන්න\n\n🚨 වැඩ නැති එකක් උනොත් මේ number එකට message එකක් දාන්න: 0743826406\n\n> *ᴜᴘʟᴏᴀᴅ ʙʏ NIKA MINI*`;
 
     if (ext === ".mp4") {
       await conn.sendMessage(from, {
