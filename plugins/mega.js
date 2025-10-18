@@ -1,54 +1,58 @@
 const { cmd } = require('../lib/command');
 const { File } = require("megajs");
+const fs = require('fs');
 const path = require('path');
 
 cmd({
   pattern: "mega",
-  desc: "Download real mp4 from Mega.nz",
+  desc: "Download from Mega.nz",
   react: "🎥",
   filename: __filename
 }, async (conn, mek, m, { from, q, reply }) => {
   try {
-    if (!q || !q.includes("mega.nz")) return reply("📎 *Send a valid Mega.nz file URL*");
+    if (!q || !q.includes("mega.nz")) return reply("📎 *Send a valid Mega.nz link!*");
 
-    const [fileUrl, decryptionKey] = q.split("#");
-    if (!decryptionKey) return reply("🔑 *Missing decryption key*");
+    reply("📥 *Downloading from Mega.nz...*");
 
-    const megaFile = File.fromURL(fileUrl + "#" + decryptionKey);
+    const file = File.fromURL(q);
+    await file.loadAttributes();
 
-    await megaFile.loadAttributes(); // ✅ Ensure file name is fetched
+    const fileName = file.name || "file.mp4";
+    const tempPath = path.join(__dirname, "../temp", fileName);
 
-    megaFile.on("progress", (downloaded, total) => {
-      const percent = ((downloaded / total) * 100).toFixed(2);
-      reply(`⬇️ Downloading: ${percent}% (${(downloaded / 1024 / 1024).toFixed(2)}MB)`);
+    // Create temp folder if not exists
+    if (!fs.existsSync(path.dirname(tempPath))) {
+      fs.mkdirSync(path.dirname(tempPath), { recursive: true });
+    }
+
+    const writeStream = fs.createWriteStream(tempPath);
+    file.download().pipe(writeStream);
+
+    writeStream.on("finish", async () => {
+      const stats = fs.statSync(tempPath);
+      const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
+
+      if (sizeMB > 2000) {
+        fs.unlinkSync(tempPath);
+        return reply(`❌ File too large (${sizeMB}MB). Max 2000MB allowed.`);
+      }
+
+      await conn.sendMessage(from, {
+        document: fs.readFileSync(tempPath),
+        fileName,
+        mimetype: "application/octet-stream"
+      }, { quoted: mek });
+
+      fs.unlinkSync(tempPath);
     });
 
-    const buffer = await megaFile.downloadBuffer();
-    const fileName = megaFile.name || "file.mp4"; // ✅ Now real name should work
-    const ext = path.extname(fileName).toLowerCase();
-
-    const sizeInMB = buffer.length / 1024 / 1024;
-    if (sizeInMB > 2000) {
-      return reply(`❌ File is too large (${sizeInMB.toFixed(2)}MB). WhatsApp max: 2000MB.`);
-    }
-
-    // ❌ Caption removed completely
-    if (ext === ".mp4") {
-      await conn.sendMessage(from, {
-        video: buffer,
-        mimetype: 'video/mp4',
-        fileName
-      }, { quoted: mek });
-    } else {
-      await conn.sendMessage(from, {
-        document: buffer,
-        mimetype: 'application/octet-stream',
-        fileName
-      }, { quoted: mek });
-    }
+    writeStream.on("error", (err) => {
+      console.error(err);
+      reply("❌ Download failed: " + err.message);
+    });
 
   } catch (e) {
     console.error(e);
-    reply("❌ Failed to upload to WhatsApp.\n\nReason: " + e.message);
+    reply("❌ Error: " + e.message);
   }
 });
